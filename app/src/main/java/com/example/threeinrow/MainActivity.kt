@@ -1,5 +1,7 @@
 package com.example.threeinrow
 
+import android.content.Context
+import android.media.MediaPlayer
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -9,9 +11,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Button
+import androidx.compose.material.Slider
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,15 +22,49 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlin.math.log
+
+
+val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+val VOLUME = floatPreferencesKey("volume")
+
 
 class MainActivity : ComponentActivity() {
+
+    private lateinit var mediaPlayer: MediaPlayer
+
+    override fun onDestroy() {
+        super.onDestroy()
+        mediaPlayer.release()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // TODO Create a Thread for music, which will be affected from a Settings Screen
+        mediaPlayer = MediaPlayer.create(this, R.raw.bg_music)
+        val volumeFlow: Flow<Float> = this.dataStore.data
+            .map {
+                it[VOLUME] ?: 0.1f
+            }
+        lifecycleScope.launchWhenCreated {
+            mediaPlayer.start()
+            mediaPlayer.isLooping = true
+            volumeFlow.collect {
+                mediaPlayer.setVolume(log(it + 1, 2f), log(it + 1, 2f))
+            }
+        }
         setContent {
             Surface(modifier = Modifier.fillMaxSize()) {
                 val navController = rememberNavController()
@@ -78,6 +115,35 @@ fun LevelsScreen(navController: NavController) {
 
 @Composable
 fun SettingsScreen(navController: NavController) {
+    val context = LocalContext.current
+    var sliderPosition by remember {
+        mutableStateOf(0.1f)
+    }
+    LaunchedEffect(Unit) {
+        context.dataStore.data.map {
+            it[VOLUME] ?: 0.1f
+        }.collect {
+            sliderPosition = it
+        }
+    }
+    val scope = rememberCoroutineScope()
+
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Slider(
+            value = sliderPosition,
+            onValueChange = { sliderPosition = it },
+            steps = 100,
+            valueRange = 0f..1f,
+
+            onValueChangeFinished = {
+                scope.launch {
+                    context.dataStore.edit {
+                        it[VOLUME] = sliderPosition
+                    }
+                }
+            }
+        )
+    }
     /*TODO Create a Seekbar to change music volume, a button to reset a progress*/
 }
 
